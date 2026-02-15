@@ -1,0 +1,7 @@
+{
+  "name": "Power Solution: Net-Zero ADUs & Solar Energy",
+  "description": "Premium Net-Zero smart Accessory Dwelling Units and AI-optimized solar energy systems by Power Solution.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
