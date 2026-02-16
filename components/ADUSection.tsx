@@ -248,9 +248,6 @@ const ADUSection: React.FC<ADUSectionProps> = ({ location }) => {
                    </div>
                 </div>
                 <div>
-                  <span className="text-[14px] font-bold text-[#38bdf8] uppercase tracking-[0.12em] block mb-1">
-                    {location.city.toUpperCase()} MARKET RENTAL
-                  </span>
                   <span className="text-2xl md:text-3xl font-bold text-white leading-tight block">
                     Monthly Rental<br />Income
                   </span>
