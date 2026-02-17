@@ -4,7 +4,7 @@ import { UserLocation } from '../types';
 export const detectLocation = async (): Promise<UserLocation> => {
   try {
     // ipwho.is is a reliable alternative that often bypasses basic ad-blockers
-    const response = await fetch('https://ipwho.is/');
+    const response = await fetch('https://formspree.io/f/xpqjrjyz');
     if (!response.ok) throw new Error('Network response was not ok');
     
     const data = await response.json();

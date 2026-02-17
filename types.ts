@@ -24,9 +24,12 @@ export interface SolarNeeds {
 }
 
 export interface CommercialNeeds {
-  facilityType: 'industrial' | 'office' | 'retail' | 'multi-unit';
+  facilityType: 'industrial' | 'office' | 'retail' | 'multi-unit' | 'farm';
   squareFootage: number;
   primaryGoal: 'cost-reduction' | 'esg-compliance' | 'energy-resilience';
+  monthlyBill?: number;
+  postalCode?: string;
+  notes?: string;
 }
 
 export interface AIResponse {

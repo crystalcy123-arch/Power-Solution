@@ -1,274 +1,207 @@
 
 import React, { useState, useMemo } from 'react';
-import { getSolarConsultation } from '../services/geminiService';
-import { SolarNeeds, CommercialNeeds, AIResponse, UserLocation } from '../types';
-import { GoogleGenAI, Type } from "@google/genai";
-import { regionalKnowledge } from '../data/businessKnowledge';
+import { SolarNeeds, CommercialNeeds, UserLocation } from '../types';
 
 interface SolarSectionProps {
   location: UserLocation;
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const SuccessModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white rounded-[2.5rem] p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-300">
+        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <svg className="w-10 h-10 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h3 className="text-2xl font-black text-center text-slate-900 mb-4 font-heading">Inquiry Received!</h3>
+        <p className="text-slate-600 text-center leading-relaxed mb-8">
+          Thank you for reaching out to Power Solution. Our clean-energy experts will analyze your details and contact you shortly.
+        </p>
+        <button 
+          onClick={onClose}
+          className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
+        >
+          Excellent
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const SolarSection: React.FC<SolarSectionProps> = ({ location }) => {
   const [mode, setMode] = useState<'residential' | 'commercial'>('residential');
+  const [resPostalCode, setResPostalCode] = useState('');
+  const [contact, setContact] = useState({ name: '', email: '', phone: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  
   const [resNeeds, setResNeeds] = useState<SolarNeeds>({
-    monthlyBill: 250,
+    monthlyBill: 0,
     roofType: 'asphalt-shingle',
     energyPriority: 'savings'
   });
+  
   const [comNeeds, setComNeeds] = useState<CommercialNeeds>({
     facilityType: 'industrial',
     squareFootage: 15000,
-    primaryGoal: 'cost-reduction'
+    primaryGoal: 'cost-reduction',
+    monthlyBill: 0,
+    postalCode: '',
+    notes: ''
   });
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<AIResponse | null>(null);
 
-  const activeRegion = useMemo(() => {
-    return location.region in regionalKnowledge ? location.region : 'ON';
-  }, [location.region]);
+  const activeRegion = useMemo(() => location.region || 'ON', [location.region]);
 
-  const policyLink = useMemo(() => {
-    return (regionalKnowledge[activeRegion] || regionalKnowledge['Default']).policyUrl;
-  }, [activeRegion]);
-
-  const handleResidentialConsult = async () => {
-    setLoading(true);
-    try {
-      const res = await getSolarConsultation(resNeeds, location);
-      setResult(res);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+  const handleSubmit = async () => {
+    if (!contact.email || !contact.name) {
+      alert("Please provide at least your name and email.");
+      return;
     }
-  };
 
-  const handleCommercialConsult = async () => {
-    setLoading(true);
+    setIsSubmitting(true);
+    const formData = {
+      projectType: mode === 'residential' ? 'Residential Solar' : 'Commercial Solar',
+      customerName: contact.name,
+      customerEmail: contact.email,
+      customerPhone: contact.phone,
+      ...(mode === 'residential' 
+        ? { monthlyBill: resNeeds.monthlyBill, postalCode: resPostalCode, priority: resNeeds.energyPriority }
+        : { facility: comNeeds.facilityType, sqft: comNeeds.squareFootage, monthlyBill: comNeeds.monthlyBill, postalCode: comNeeds.postalCode, notes: comNeeds.notes }
+      ),
+      city: location.city,
+      province: activeRegion
+    };
+
     try {
-      const prompt = `Act as an expert Commercial Solar Analyst for Power Solution Canada.
-      Location: ${location.city}, ${location.region}.
-      Facility: ${comNeeds.facilityType}, ${comNeeds.squareFootage} sqft.
-      Goal: ${comNeeds.primaryGoal}.
-      
-      Generate a professional commercial solar infrastructure brief.
-      - 5 high-impact "Core Specifications" (concise, max 12 words each).
-      - Include mentions of Net-metering, industrial-grade panels, and business energy grants.
-      - Return exactly: summary, recommendations[], estimatedCostRange, and roiEstimate.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              summary: { type: Type.STRING },
-              recommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
-              estimatedCostRange: { type: Type.STRING },
-              roiEstimate: { type: Type.STRING }
-            },
-            required: ['summary', 'recommendations', 'estimatedCostRange', 'roiEstimate']
-          }
-        }
+      const response = await fetch("https://formspree.io/f/xpqjrjyz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData)
       });
-      setResult(JSON.parse(response.text));
+
+      if (response.ok) {
+        setShowSuccess(true);
+        setContact({ name: '', email: '', phone: '' });
+      } else {
+        throw new Error("Submission failed");
+      }
     } catch (err) {
-      console.error(err);
+      alert("Something went wrong. Please try again or contact crystalsli@outlook.com directly.");
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
     <section className="max-w-7xl mx-auto px-4">
+      <SuccessModal isOpen={showSuccess} onClose={() => setShowSuccess(false)} />
+      
       <div className="grid lg:grid-cols-2 gap-16">
         <div className="space-y-10">
           <div className="flex flex-col space-y-6">
-            <h2 className="text-4xl font-heading font-extrabold text-slate-900 leading-tight">
-              Power Your Future with <span className="text-emerald-600">Solar Energy.</span>
-            </h2>
-            <p className="text-slate-600 text-lg leading-relaxed max-w-xl">
-              From residential rooftop arrays to industrial-scale energy ecosystems, we deliver high-yield solar solutions across Ontario.
-            </p>
+            <h2 className="text-4xl font-heading font-extrabold text-slate-900">Power Your Future with <span className="text-emerald-600">Solar Energy.</span></h2>
+            <p className="text-slate-600 text-lg leading-relaxed max-w-xl">From residential rooftop arrays to industrial-scale energy ecosystems, we deliver high-yield solar solutions across Canada.</p>
             
-            {/* Mode Switcher */}
-            <div className="bg-slate-200/50 p-1.5 rounded-2xl w-full sm:w-fit flex shadow-inner border border-slate-200">
-              <button 
-                onClick={() => { setMode('residential'); setResult(null); }}
-                className={`px-8 py-3 rounded-xl font-bold transition-all text-sm uppercase tracking-wider ${mode === 'residential' ? 'bg-white text-emerald-600 shadow-md border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Residential
-              </button>
-              <button 
-                onClick={() => { setMode('commercial'); setResult(null); }}
-                className={`px-8 py-3 rounded-xl font-bold transition-all text-sm uppercase tracking-wider ${mode === 'commercial' ? 'bg-white text-emerald-600 shadow-md border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Commercial
-              </button>
+            {mode === 'residential' && (
+              <div className="bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded-r-xl">
+                <p className="text-emerald-800 text-sm font-medium italic leading-relaxed">
+                  🏠 You may be eligible for the <span className="font-bold">Canada Greener Homes Loan</span> (up to $40,000 interest-free). Visit the <a href="https://natural-resources.canada.ca/energy-efficiency/homes/canada-greener-homes-initiative/24831" target="_blank" rel="noopener noreferrer" className="underline font-bold hover:text-emerald-600">Official Portal</a>.
+                </p>
+              </div>
+            )}
+            
+            <div className="bg-slate-200/50 p-1.5 rounded-2xl w-full sm:w-fit flex border border-slate-200">
+              <button onClick={() => setMode('residential')} className={`px-8 py-3 rounded-xl font-bold transition-all text-sm ${mode === 'residential' ? 'bg-white text-emerald-600 shadow-md border border-slate-100' : 'text-slate-500'}`}>Residential</button>
+              <button onClick={() => setMode('commercial')} className={`px-8 py-3 rounded-xl font-bold transition-all text-sm ${mode === 'commercial' ? 'bg-white text-emerald-600 shadow-md border border-slate-100' : 'text-slate-500'}`}>Commercial</button>
             </div>
           </div>
 
-          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-2xl space-y-8 relative overflow-hidden">
-             {mode === 'residential' ? (
-               <div className="space-y-8">
-                  <div>
-                    <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Avg. Monthly Hydro Bill (CAD)</label>
-                    <div className="relative">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-900 font-bold text-xl">$</span>
-                      <input 
-                        type="number"
-                        value={resNeeds.monthlyBill}
-                        onChange={(e) => setResNeeds({ ...resNeeds, monthlyBill: parseInt(e.target.value) || 0 })}
-                        className="w-full p-6 pl-12 rounded-2xl border-2 border-slate-100 focus:border-emerald-500 outline-none font-bold text-xl text-slate-900 bg-slate-50 transition-all"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Strategic Energy Priority</label>
-                    <div className="space-y-3">
-                      {[
-                        { id: 'savings', label: 'Financial Savings', sub: 'Focus on maximum utility cost reduction' },
-                        { id: 'independence', label: 'Grid Independence', sub: 'High-capacity battery storage integration' }
-                      ].map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => setResNeeds({ ...resNeeds, energyPriority: p.id as any })}
-                          className={`w-full p-6 text-left rounded-2xl border-2 transition-all flex items-center justify-between group ${
-                            resNeeds.energyPriority === p.id ? 'bg-emerald-50 border-emerald-500' : 'bg-slate-50 border-slate-50 hover:border-slate-200'
-                          }`}
-                        >
-                          <div>
-                            <div className={`font-black text-sm uppercase tracking-tight ${resNeeds.energyPriority === p.id ? 'text-emerald-700' : 'text-slate-800'}`}>{p.label}</div>
-                            <div className="text-xs text-slate-500">{p.sub}</div>
-                          </div>
-                          {resNeeds.energyPriority === p.id && <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center text-white text-xs font-bold">✓</div>}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleResidentialConsult}
-                    disabled={loading}
-                    className="w-full py-6 bg-emerald-600 text-white rounded-2xl font-black text-xl hover:bg-emerald-700 transition-all shadow-2xl shadow-emerald-100 active:scale-[0.98]"
-                  >
-                    {loading ? 'Analyzing Payback...' : 'Calculate Home Savings'}
-                  </button>
-               </div>
-             ) : (
-               <div className="space-y-8">
-                  <div>
-                    <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Facility Classification</label>
-                    <div className="grid grid-cols-2 gap-4">
-                      {['industrial', 'office', 'retail', 'multi-unit'].map(type => (
-                        <button
-                          key={type}
-                          onClick={() => setComNeeds({ ...comNeeds, facilityType: type as any })}
-                          className={`p-5 rounded-2xl border-2 font-bold capitalize transition-all text-sm ${
-                            comNeeds.facilityType === type ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-slate-50 border-slate-50 text-slate-600 hover:border-slate-200'
-                          }`}
-                        >
-                          {type.replace('-', ' ')}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Facility SqFt</label>
+          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-2xl space-y-8 relative">
+             <div className="space-y-6">
+                {mode === 'residential' ? (
+                  <div className="grid md:grid-cols-2 gap-6">
                     <input 
-                      type="number"
-                      value={comNeeds.squareFootage}
-                      onChange={(e) => setComNeeds({ ...comNeeds, squareFootage: parseInt(e.target.value) || 0 })}
-                      className="w-full p-6 rounded-2xl border-2 border-slate-100 focus:border-emerald-500 outline-none font-bold text-xl text-slate-900 bg-slate-50 transition-all"
+                      type="number" 
+                      placeholder="Total Monthly Bill ($)" 
+                      value={resNeeds.monthlyBill || ''} 
+                      onChange={e => setResNeeds({...resNeeds, monthlyBill: parseInt(e.target.value) || 0})} 
+                      className="w-full p-5 rounded-xl border-2 border-slate-100 font-bold text-slate-900 bg-slate-50 focus:border-emerald-500 outline-none transition-colors" 
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Postal Code" 
+                      value={resPostalCode} 
+                      onChange={e => setResPostalCode(e.target.value.toUpperCase())} 
+                      className="w-full p-5 rounded-xl border-2 border-slate-100 font-bold text-slate-900 bg-slate-50 focus:border-emerald-500 outline-none transition-colors" 
                     />
                   </div>
-                  <button
-                    onClick={handleCommercialConsult}
-                    disabled={loading}
-                    className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-xl hover:bg-slate-800 transition-all shadow-2xl active:scale-[0.98]"
-                  >
-                    {loading ? 'Analyzing Infrastructure...' : 'Generate Enterprise Audit'}
-                  </button>
-               </div>
-             )}
+                ) : (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-3 gap-3">
+                      {['industrial', 'office', 'retail', 'farm'].map(t => (
+                        <button key={t} onClick={() => setComNeeds({...comNeeds, facilityType: t as any})} className={`p-4 rounded-xl border-2 font-bold capitalize transition-all ${comNeeds.facilityType === t ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-200' : 'bg-slate-50 border-slate-50 text-slate-600 hover:border-slate-200'}`}>{t}</button>
+                      ))}
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <input 
+                        type="number" 
+                        placeholder="Total Monthly Bill ($)" 
+                        value={comNeeds.monthlyBill || ''} 
+                        onChange={e => setComNeeds({...comNeeds, monthlyBill: parseInt(e.target.value) || 0})} 
+                        className="w-full p-5 rounded-xl border-2 border-slate-100 font-bold bg-slate-50 focus:border-emerald-500 outline-none transition-colors" 
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="Postal Code" 
+                        value={comNeeds.postalCode} 
+                        onChange={e => setComNeeds({...comNeeds, postalCode: e.target.value.toUpperCase()})} 
+                        className="w-full p-5 rounded-xl border-2 border-slate-100 font-bold bg-slate-50 focus:border-emerald-500 outline-none transition-colors" 
+                      />
+                    </div>
+                    <textarea placeholder="Custom operational requirements..." value={comNeeds.notes} onChange={e => setComNeeds({...comNeeds, notes: e.target.value})} className="w-full p-5 rounded-xl border-2 border-slate-100 font-medium bg-slate-50 min-h-[100px] resize-none focus:border-emerald-500 outline-none transition-colors" />
+                  </div>
+                )}
+
+                <div className="pt-6 border-t border-slate-100 space-y-4">
+                  <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest">Your Contact Information</label>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <input type="text" placeholder="Full Name" value={contact.name} onChange={e => setContact({...contact, name: e.target.value})} className="w-full p-4 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none font-medium" />
+                    <input type="email" placeholder="Email Address" value={contact.email} onChange={e => setContact({...contact, email: e.target.value})} className="w-full p-4 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none font-medium" />
+                  </div>
+                </div>
+
+                <button 
+                  disabled={isSubmitting}
+                  onClick={handleSubmit}
+                  className={`w-full py-6 rounded-2xl font-black text-xl transition-all shadow-xl flex items-center justify-center space-x-3 active:scale-95 ${isSubmitting ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200'}`}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <svg className="animate-spin h-6 w-6 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      <span>Submitting...</span>
+                    </>
+                  ) : (
+                    <span>Submit Request & Contact Expert</span>
+                  )}
+                </button>
+             </div>
           </div>
         </div>
 
         <div className="relative">
-          {result ? (
-            <div className="bg-[#0f172a] text-white p-12 rounded-[3.5rem] shadow-2xl h-full flex flex-col sticky top-24 border border-slate-800">
-              <div className="flex-grow space-y-8">
-                <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-slate-500 mb-8">System Engineering Insight</h4>
-                <ul className="space-y-4">
-                  {result.recommendations.map((rec, i) => (
-                    <li key={i} className="flex items-center space-x-6 bg-slate-800/30 p-6 rounded-[1.5rem] border border-slate-800/50 group hover:border-emerald-500/30 transition-all">
-                      <div className="w-10 h-10 bg-emerald-500/10 rounded-full flex-shrink-0 flex items-center justify-center text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </div>
-                      <span className="text-slate-200 text-base font-semibold leading-tight">{rec}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {/* Grant Notice Specific to Province */}
-                <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-2xl p-6 mt-8">
-                  <div className="flex items-start space-x-4">
-                    <div className="mt-1 flex-shrink-0">
-                      <svg className="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h5 className="text-sm font-bold text-white mb-1">Grant Eligibility Notice</h5>
-                      <p className="text-xs text-slate-300 leading-relaxed mb-3">
-                        This solar project in <span className="text-emerald-400 font-bold">{location.region === 'ON' ? 'Ontario' : (location.region === 'BC' ? 'British Columbia' : location.region)}</span> may qualify for the <strong>Canada Greener Homes Loan</strong> and provincial tax credits.
-                      </p>
-                      <a 
-                        href={policyLink} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="inline-flex items-center text-xs font-black text-emerald-400 hover:text-emerald-300 transition-colors uppercase tracking-widest border-b border-emerald-400/30 pb-0.5"
-                      >
-                        Explore Grants for {location.region}
-                        <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="mt-auto pt-10 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center md:items-end gap-6">
-                <div className="flex-1">
-                  <div className="text-[12px] font-black text-slate-500 uppercase tracking-widest mb-1">Estimated ROI ({result.roiEstimate})</div>
-                  <div className="text-4xl font-black text-white leading-tight">
-                    {result.estimatedCostRange} <span className="text-xl text-emerald-500 font-bold ml-1">CAD</span>
-                  </div>
-                  <p className="text-slate-500 text-[11px] mt-4 leading-relaxed max-w-sm font-medium">
-                    This estimate represents the gross project cost and <span className="text-emerald-400 font-bold text-[12px]">does not yet factor in potential government grants.</span> Accounts for current Ontario net-metering laws and federal commercial tax incentives.
-                  </p>
-                </div>
-                <button className="whitespace-nowrap px-10 py-6 bg-emerald-600 text-white rounded-[1.5rem] font-black text-lg hover:bg-emerald-700 transition-all shadow-xl hover:shadow-emerald-500/20 active:scale-95">
-                  Secure My Rate
-                </button>
-              </div>
+          <div className="h-full rounded-[3.5rem] overflow-hidden border-4 border-white bg-white flex flex-col items-center justify-center min-h-[600px] sticky top-24 shadow-2xl">
+            <img src={mode === 'residential' ? "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&q=80&w=1200" : "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?auto=format&fit=crop&q=80&w=1200"} alt="Solar" className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent"></div>
+            <div className="relative z-10 p-12 text-white w-full mt-auto">
+               <div className="bg-emerald-500/10 backdrop-blur-md border border-white/20 p-8 rounded-3xl">
+                  <h3 className="text-3xl font-black mb-4 uppercase tracking-tight">Solar Infrastructure</h3>
+                  <p className="text-white/80 font-medium italic">High-efficiency arrays engineered for the Canadian climate.</p>
+               </div>
             </div>
-          ) : (
-            <div className="h-full rounded-[3.5rem] overflow-hidden border border-slate-200 bg-white flex items-center justify-center relative group min-h-[600px] sticky top-24 shadow-2xl">
-              <img src="https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&q=80&w=1200" alt="Solar" className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-700" />
-              <div className="relative z-10 text-center bg-white/40 backdrop-blur-xl p-16 rounded-[3rem] border border-white/50">
-                <h3 className="text-3xl font-black text-slate-900 mb-4 uppercase tracking-tight">Solar Intelligence</h3>
-                <p className="text-slate-700 font-semibold max-w-xs mx-auto">Input your details to generate a customized renewable energy roadmap for your property.</p>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </section>
